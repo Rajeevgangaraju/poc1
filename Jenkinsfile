@@ -2,7 +2,7 @@ pipeline {
     agent any
 
     tools {
-        jdk 'java17'
+        jdk 'java21'
         maven 'maven'
     }
 
@@ -26,9 +26,16 @@ pipeline {
         }
 
         stage('SonarQube Code Analysis') {
+            environment {
+                SONAR_TOKEN = credentials('sonar-token')
+            }
             steps {
                 withSonarQubeEnv('sonar-server') {
-                    sh 'mvn sonar:sonar'
+                    sh '''
+                    mvn sonar:sonar \
+                    -Dsonar.projectKey=poc1 \
+                    -Dsonar.java.source=21
+                    '''
                 }
             }
         }
@@ -36,10 +43,10 @@ pipeline {
         stage('OWASP Dependency Check') {
             steps {
                 sh '''
-                dependency-check \
-                  --scan . \
-                  --format HTML \
-                  --out dependency-check-report
+                dependency-check.sh \
+                --scan . \
+                --format HTML \
+                --out dependency-check-report
                 '''
             }
         }
