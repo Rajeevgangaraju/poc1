@@ -33,8 +33,8 @@ pipeline {
                 withSonarQubeEnv('sonar-server') {
                     sh '''
                     mvn sonar:sonar \
-                    -Dsonar.projectKey=poc1 \
-                    -Dsonar.java.source=21
+                      -Dsonar.projectKey=poc1 \
+                      -Dsonar.java.source=21
                     '''
                 }
             }
@@ -44,9 +44,11 @@ pipeline {
             steps {
                 sh '''
                 dependency-check.sh \
-                --scan . \
-                --format HTML \
-                --out dependency-check-report
+                  --scan . \
+                  --data /var/lib/jenkins/dependency-check-data \
+                  --noupdate \
+                  --format HTML \
+                  --out dependency-check-report
                 '''
             }
         }
@@ -93,10 +95,10 @@ pipeline {
 
     post {
         success {
-            echo "✅ CI/CD Pipeline completed successfully!"
+            echo "✅ DevSecOps CI/CD Pipeline completed successfully!"
         }
         failure {
-            echo "❌ Pipeline failed. Check Jenkins logs."
+            echo "❌ Pipeline failed. Please check Jenkins logs."
         }
     }
 }
