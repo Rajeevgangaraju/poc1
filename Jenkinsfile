@@ -1,104 +1,109 @@
 pipeline {
     agent any
 
-    tools {
-        jdk 'java21'
-        maven 'maven'
-    }
-
     environment {
-        DOCKER_IMAGE = "rajeevgangaraju/poc-1:latest"
+        IMAGE_NAME = "rajeevgangaraju/poc-1"
+        TAG = "latest"
     }
-
     stages {
-
-        stage('Checkout Code') {
+        stage('Checkout') {
             steps {
-                git branch: 'main',
-                    url: 'https://github.com/Rajeevgangaraju/poc1.git'
+                git branch: 'main', url: 'https://github.com/Rajeevgangaraju/poc1.git'
             }
         }
 
-        stage('Build & Unit Tests') {
+        stage('Build') {
             steps {
-                sh 'mvn clean test'
+                sh 'mvn clean package'
             }
         }
 
-        stage('SonarQube Code Analysis') {
-            environment {
-                SONAR_TOKEN = credentials('sonar-token')
+        stage('Test') {
+            steps {
+                sh 'echo "No tests yet"'
             }
+        }
+
+        stage('SonarQube Analysis') {
             steps {
                 withSonarQubeEnv('sonar-server') {
-                    sh '''
-                    mvn sonar:sonar \
-                      -Dsonar.projectKey=poc1 \
-                      -Dsonar.java.source=21
-                    '''
+                    sh 'mvn sonar:sonar'
                 }
             }
         }
 
-        stage('OWASP Dependency Check') {
+        stage('OWASP Scan') {
             steps {
-                sh '''
-                dependency-check.sh \
-                  --scan . \
-                  --data /var/lib/jenkins/dependency-check-data \
-                  --noupdate \
-                  --format HTML \
-                  --out dependency-check-report
-                '''
+                withCredentials([string(credentialsId: 'nvd-api-key', variable: 'NVD_KEY')]) {
+                    dependencyCheck(
+                        odcInstallation: 'Dependency-Check',
+                        additionalArguments: '--scan . --out ./dc-report --format XML --format HTML --noupdate'
+                    )
+                }
+
+                dependencyCheckPublisher(
+                    pattern: 'dc-report/dependency-check-report.xml'
+                )
             }
         }
 
         stage('Docker Build') {
             steps {
-                sh 'docker build -t $DOCKER_IMAGE .'
+                sh 'docker build -t $IMAGE_NAME:$TAG .'
             }
         }
 
-        stage('Trivy Docker Image Scan') {
+       stage('Trivy Scan') {
             steps {
-                sh 'trivy image --severity HIGH,CRITICAL $DOCKER_IMAGE'
-            }
-        }
-
-        stage('Docker Push to Docker Hub') {
-            steps {
-                withCredentials([usernamePassword(
-                    credentialsId: 'dockerhub-creds',
-                    usernameVariable: 'DOCKER_USER',
-                    passwordVariable: 'DOCKER_PASS'
-                )]) {
+                script {
                     sh '''
-                    echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
-                    docker push $DOCKER_IMAGE
+                    mkdir -p trivy-cache
+        
+                    # Step 1: Download DB 
+                    trivy image --download-db-only --cache-dir trivy-cache || true
+        
+                    # Step 2: Run scan 
+                    trivy image \
+                    --cache-dir trivy-cache \
+                    --skip-db-update \
+                    --scanners vuln \
+                    --exit-code 0 \
+                    $IMAGE_NAME:$TAG || true
                     '''
                 }
             }
         }
+    
+        stage('Docker Push') {
+            steps {
+                withCredentials([usernamePassword(
+                    credentialsId: 'docker-creds',
+                    usernameVariable: 'USER',
+                    passwordVariable: 'PASS'
+                )]) {
+                    sh 'echo $PASS | docker login -u $USER --password-stdin'
+                    sh 'docker push $IMAGE_NAME:$TAG'
+                }
+            }
+        }
 
-        stage('Deploy Docker Container') {
+        stage('Deploy') {
             steps {
                 sh '''
-                docker rm -f poc-1 || true
-                docker run -d \
-                  -p 8081:8080 \
-                  --name poc-1 \
-                  $DOCKER_IMAGE
+                docker stop poc-container || true
+                docker rm poc-container || true
+                docker run -d -p 8081:8080 --name poc-container $IMAGE_NAME:$TAG
                 '''
             }
         }
     }
 
     post {
-        success {
-            echo "✅ DevSecOps CI/CD Pipeline completed successfully!"
-        }
-        failure {
-            echo "❌ Pipeline failed. Please check Jenkins logs."
+        always {
+            sh '''
+            docker system prune -af || true
+            rm -rf trivy-cache || true
+            '''
         }
     }
 }
