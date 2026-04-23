@@ -14,12 +14,12 @@ pipeline {
 
         stage('Build') {
             steps {
-                withMaven(maven: 'maven') {
+                
                     sh 'mvn clean package'
                 }
             }
 
-        }
+        
 
         stage('Test') {
             steps {
